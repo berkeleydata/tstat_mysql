@@ -1,0 +1,19 @@
+PRE-REQUISITES
+---------------
+1. MySQL > 3.6.0
+2. Python >= 2.7.0
+
+CONFIGURE
+----------
+1. Set config/config.ini properties [for CONNECTION and AUTH]
+2. cd scripts; ./config_mysql.sh
+
+INSTALL
+--------
+1. Set TSA_HOME environment variable to tstat-analyzer directory and add it ~/.bashrc
+2. cd scripts; ./install.sh
+
+EXECUTION
+----------
+cd scripts
+./run.sh [<date for which records will be processed>]
