@@ -10,6 +10,7 @@ import datetime
 import re
 import csv
 import math
+import socket
 from fetcher import PropertyReader
 
 ##############################################################################################
@@ -117,17 +118,30 @@ class TstatParser():
     def get_column_names(self, header):
         cols = header.split(',')
         columns = ['local', 'remote']
+        excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message']
+        dups = ['type', 'dest']
 
         idx = 0
         column_ids = {}
+        col_counts = {}
         for col in cols:
             colname = re.sub('[@.#:]', '_', col)            
             colname = colname.replace('\n', '')
             colname = colname.replace('\r', '')
+            '''
+            if colname.lower() in col_counts:
+                cnt = int(col_counts[colname])
+                colname = colname + '_' + str(cnt)
+                col_counts[colname.lower()] = cnt + 1
+            else:
+                col_counts[colname.lower()] = 0
+            '''
             if colname == 'interval':
                 colname = '_interval'
-            column_ids[colname] = idx
-            columns.append(colname)
+            if colname not in excludes:
+                column_ids[colname] = idx
+                if colname not in columns:
+                    columns.append(colname)
             idx += 1
 
         return columns, column_ids
@@ -243,7 +257,7 @@ class TstatParser():
             print("Total time to insert {} records: {} seconds".format(num_records, (end_time - start_time)))
             #print("Number of records deleted: {}".format(cur.rowcount))
         except mdb.Error as e:
-            print("Error: {}".format(e))
+            print("Error while inserting records: {}".format(e))
             print("Number of files processed: {}".format(num_processed))
             if con:    
                 con.close()
@@ -265,7 +279,30 @@ class TstatParser():
                 values = line.split(',')
                 idx = 0
                 rec = {}
+                
+                flow_type = values[col_ids['type']]
+                '''
+                hostaddr1 = ''
+                if flow_type == 'flow':
+                    hostaddr1 = values[col_ids['source']]
+                elif flow_type == 'gridftp':
+                    hostaddr1 = values[col_ids['host']]
 
+                hostaddr2 = ''
+                if flow_type == 'flow':
+                    hosts = [values[col_ids[k]] for k in col_ids if k.startswith('dest')]
+                    for host in hosts:
+                        hostaddr2 = host
+                elif flow_type == 'gridftp':
+                    host_ips = [values[col_ids[k]] for k in col_ids if k.startswith('dest')]
+                    try:
+                        for host_ip in host_ips:
+                            if host_ip != '':
+                                hostaddr2 = socket.gethostbyaddr(host_ip)[0]
+                    except socket.herror:
+                        print('Unable to resolve IP ({}) to hostname!'.format(host_ip))
+
+                '''
                 hostaddr1 = values[col_ids['source']]
                 hostaddr2 = values[col_ids['dest']]
                 if pattern.match(hostaddr1):
@@ -277,33 +314,51 @@ class TstatParser():
                     
                 idx = 0
                 row = []
-                for col in columns:
-                    if col == 'local':
-                        if pattern.match(hostaddr1):
-                            rec['local'] = hostaddr1
+                if flow_type == 'flow':
+                    for col in columns:
+                        if col == 'local':
+                            if pattern.match(hostaddr1):
+                                rec['local'] = hostaddr1
+                            else:
+                                rec['local'] = hostaddr2
+                        elif col == 'remote':
+                            if pattern.match(hostaddr1):
+                                rec['remote'] = hostaddr2
+                            else:
+                                rec['remote'] = hostaddr1
+                    #elif col == 'source':
+                    #    rec['source'] = hostaddr1
+                    #elif col == 'dest':
+                    #    rec['dest'] = hostaddr2                    
+                    #elif col == 'start':
+                    #    if flow_type == 'flow':
+                    #        rec['start'] = int(values[col_ids['start_0']])
+                    #    elif flow_type == 'gridftp':
+                    #        tm = datetime.datetime.strptime(values[col_ids['start']], '%Y%m%d%H%M%S.%f')
+                    #        epoch = datetime.datetime.utcfromtimestamp(0)
+                    #        time_since_epoch = (tm - epoch).total_seconds()
+                    #        rec['start'] = int(round(time_since_epoch))
+                    #    #print("{} Start: {}".format(flow_type, rec['start']))
                         else:
-                            rec['local'] = hostaddr2
-                    elif col == 'remote':
-                        if pattern.match(hostaddr1):
-                            rec['remote'] = hostaddr2
-                        else:
-                            rec['remote'] = hostaddr1
-                    else:
-                        if values[col_ids[col]] == '':
-                            rec[col] = None
-                        elif col_types[col] == 'int':                                
-                            rec[col] = int(values[col_ids[col]])
-                        elif col_types[col] == 'float':
-                            rec[col] = float(values[col_ids[col]])
-                        elif col_types[col] == 'datetime':
-                            tm = datetime.datetime.strptime(values[col_ids[col]], '%Y-%m-%dT%H:%M:%S.%fZ')
-                            rec[col] = tm.strftime('%Y-%m-%d %H:%M:%S')
-                        else:
-                            
-                            rec[col] = values[col_ids[col]]
-                    row.append(rec[col])
-                    idx += 1
-                data.append(tuple(row))
+                            val = values[col_ids[col]].replace('\n', '').replace('\r', '')
+                            if val == '':
+                                rec[col] = None
+                            elif col in col_types:
+                                if col_types[col] == 'int':                                
+                                    rec[col] = int(val)
+                                elif col_types[col] == 'float':
+                                    rec[col] = float(val)
+                                elif col_types[col] == 'datetime':
+                                    tm = datetime.datetime.strptime(val, '%Y-%m-%dT%H:%M:%S.%fZ')
+                                    rec[col] = tm.strftime('%Y-%m-%d %H:%M:%S')
+                                else:                            
+                                    rec[col] = val
+                            else:
+                            #print("{}: {}, {}".format(col, len(val), val))
+                                rec[col] = val
+                        row.append(rec[col])
+                        idx += 1
+                    data.append(tuple(row))
     
 
             for col in columns:

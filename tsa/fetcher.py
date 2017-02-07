@@ -66,9 +66,14 @@ class RemoteAccess():
         if self.limit:
             extra_args += ' -m ' + self.limit
 
+        if self.fields:
+            extra_args += ' -f ' + ' '.join(self.fields.split(','))
+            #print(extra_args)
+
         command = "es2csv -q '" + self.query + "' -i " + index_prefix + extra_args \
             +" -o " + outfile
-        
+
+        #print(command)
         stdin,stdout,stderr=self.ssh.exec_command(command)
         outlines=stdout.readlines()
         resp=''.join(outlines)
