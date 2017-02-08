@@ -118,7 +118,7 @@ class TstatParser():
     def get_column_names(self, header):
         cols = header.split(',')
         columns = ['local', 'remote']
-        excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message','Type']
+        excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message','Type','LOCK']
         dups = ['type', 'dest']
 
         idx = 0
