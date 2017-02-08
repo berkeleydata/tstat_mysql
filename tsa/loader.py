@@ -118,14 +118,14 @@ class TstatParser():
     def get_column_names(self, header):
         cols = header.split(',')
         columns = ['local', 'remote']
-        excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message']
+        excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message','Type']
         dups = ['type', 'dest']
 
         idx = 0
         column_ids = {}
         col_counts = {}
         for col in cols:
-            colname = re.sub('[@.#:]', '_', col)            
+            colname = re.sub('[@.#:;]', '_', col)            
             colname = colname.replace('\n', '')
             colname = colname.replace('\r', '')
             '''
@@ -345,6 +345,7 @@ class TstatParser():
                                 rec[col] = None
                             elif col in col_types:
                                 if col_types[col] == 'int':                                
+                                    #print("{} {}".format(col, val))
                                     rec[col] = int(val)
                                 elif col_types[col] == 'float':
                                     rec[col] = float(val)
