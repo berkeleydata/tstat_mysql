@@ -116,7 +116,10 @@ class TstatParser():
 
 ##########################################################################
     def get_column_names(self, header):
-        cols = header.split(',')
+        #cols = header.split(',')
+        cols = []
+        for line in csv.reader([header]):
+            cols = line
         columns = ['local', 'remote']
         excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message','Type','LOCK']
         dups = ['type', 'dest']
@@ -138,7 +141,8 @@ class TstatParser():
             '''
             if colname == 'interval':
                 colname = '_interval'
-            if colname not in excludes:
+            if colname not in excludes and '-' not in colname \
+                    and ',' not in colname and '"' not in colname:
                 column_ids[colname] = idx
                 if colname not in columns:
                     columns.append(colname)
