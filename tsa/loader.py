@@ -16,7 +16,7 @@ from fetcher import PropertyReader
 ##############################################################################################
 
 class TstatParser():
-    def __init__(self, tablename):
+    def __init__(self, tablename, flowtype):
         configfile = os.path.join(os.environ['TSA_HOME'], 'config/config.ini')
         config = PropertyReader(configfile)
         host = config.get_property_value('DATABASE', 'hostname')
@@ -25,6 +25,7 @@ class TstatParser():
         db = config.get_property_value('DATABASE', 'db')        
 
         self.tablename = tablename
+        self.flowtype = flowtype
         self.extended_table = 'tstat_analyze_extended'
         logdir = os.path.join(os.environ['TSA_HOME'], 'logdir')
         if not os.path.exists(logdir):
@@ -115,22 +116,25 @@ class TstatParser():
             sys.exit(1)    
 
 ##########################################################################
-    def get_column_names(self, header):
+    def get_column_names(self, header, col_types):
         #cols = header.split(',')
         cols = []
         for line in csv.reader([header]):
             cols = line
         columns = ['local', 'remote']
-        excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message','Type','LOCK']
+        #excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message','Type','LOCK']
+        excludes = ['DATE','DEST','DESTIP','HOST','START', 'FILE','TYPE','bandwidth_mbps','data','end_date','host','message','Type','LOCK']
+        
         dups = ['type', 'dest']
 
         idx = 0
         column_ids = {}
         col_counts = {}
+        #print(cols)
         for col in cols:
-            colname = re.sub('[@.#:;]', '_', col)            
-            colname = colname.replace('\n', '')
+            colname = col.replace('\n', '')
             colname = colname.replace('\r', '')
+            colname = re.sub('[@.#:;]', '_', colname)            
             '''
             if colname.lower() in col_counts:
                 cnt = int(col_counts[colname])
@@ -141,8 +145,9 @@ class TstatParser():
             '''
             if colname == 'interval':
                 colname = '_interval'
-            if colname not in excludes and '-' not in colname \
-                    and ',' not in colname and '"' not in colname:
+            #if colname not in excludes and '-' not in colname \
+            #        and ',' not in colname and '"' not in colname:
+            if colname not in excludes and colname in col_types:
                 column_ids[colname] = idx
                 if colname not in columns:
                     columns.append(colname)
@@ -163,7 +168,7 @@ class TstatParser():
                 header = next(f)
                 cols = header.split(',')
                 table_columns = []
-                columns, col_ids = self.get_column_names(header)
+                columns, col_ids = self.get_column_names(header, col_types)
                 idx = 0
                 for col in columns:    
                     if col in col_types:
@@ -196,7 +201,7 @@ class TstatParser():
             header = ''
             with open(logfile) as f:
                 header = next(f)
-            columns, col_ids = self.get_column_names(header)
+            columns, col_ids = self.get_column_names(header, col_types)
             idx = 0
             for col in columns:    
                 if col in col_types:
@@ -271,16 +276,18 @@ class TstatParser():
     def __insert_records__(self, tablename, logfile, cur, col_types):
         #print "Connecting to MySql..."
         print("Inserting data for log: {}".format(logfile))
+        
         with open(logfile) as f:
-            header = next(f)
-            columns, col_ids = self.get_column_names(header)            
+            reader = csv.reader(f)
+            headers = next(reader, None)
+            header = ",".join(headers)
+            columns, col_ids = self.get_column_names(header, col_types)            
 
             pattern = re.compile('dtn[0-9]+[-]*[a-z]*\.nersc\.gov')
             data = []
             col_list = []
             val_list = []
-            for line in f:
-                values = line.split(',')
+            for values in reader:
                 idx = 0
                 rec = {}
                 
@@ -318,7 +325,8 @@ class TstatParser():
                     
                 idx = 0
                 row = []
-                if flow_type == 'flow':
+                if flow_type == self.flowtype: # flow/gridftp
+                    #print(flow_type)
                     for col in columns:
                         if col == 'local':
                             if pattern.match(hostaddr1):
@@ -345,11 +353,13 @@ class TstatParser():
                     #    #print("{} Start: {}".format(flow_type, rec['start']))
                         else:
                             val = values[col_ids[col]].replace('\n', '').replace('\r', '')
+                            #if col == 'NBYTES':
+                            #    print("{} => {}".format(col, val))
                             if val == '':
                                 rec[col] = None
                             elif col in col_types:
-                                if col_types[col] == 'int':                                
-                                    #print("{} {}".format(col, val))
+                                if col_types[col] == 'int' or col_types[col] == 'bigint':                                
+                                    #print("{} => {} {}".format(col_ids[col], col, val))
                                     rec[col] = int(val)
                                 elif col_types[col] == 'float':
                                     rec[col] = float(val)
@@ -374,11 +384,12 @@ class TstatParser():
             insert_stmt = 'insert into ' + tablename + '(' + colnames + \
                 ') values (' + valstr + ')' 
             #print(insert_stmt)
-            #print(data[0])
+            #print(data[2733])
             #print(len(col_list), len(val_list))
             #for d in data:
             #    print(len(d))
             total_recs = len(data)
+            print(total_recs)
             start_time = time.time()
             if total_recs > 0:
                 subset_size = 1000.0
@@ -421,14 +432,14 @@ class TstatParser():
             sys.exit(1)
 
 ##################################
-    def extend(self, logfile):
+    def extend(self, logfile, col_types):
         tablename = self.tablename
         con = self.con
 
         header = ''
         with open(logfile) as f:
             header = next(f)
-        columns, col_ids = self.get_column_names(header) 
+        columns, col_ids = self.get_column_names(header, col_types) 
 
         extended_columns = ['hostpair_key', 
                             'max_throughput',
@@ -513,7 +524,7 @@ def main(args):
         
     parser.insert(logfile, col_types)
     parser.index()
-    parser.extend(logfile)
+    parser.extend(logfile, col_types)
     parser.export_to_csv()
     parser.close_conn()
     

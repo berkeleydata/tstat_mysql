@@ -7,6 +7,10 @@ import re
 
 def process(args):
     day = args.__dict__['day']
+    if args.__dict__['flow'] != None:
+        flowtype = args.__dict__['flow']
+    else:
+        flowtype = 'flow'
     remote_access = RemoteAccess()
     remote_access.connect()
     csv_file = 'tstat_analyze_' + day.replace('-', '_') + '.csv'
@@ -27,7 +31,7 @@ def process(args):
             col_types[colname] = kv[1].replace('\n', '')
 
     tablename = 'tstat_analyze_' + day.replace('-', '_')
-    parser = TstatParser(tablename)
+    parser = TstatParser(tablename, flowtype)
     parser.drop_create(esdump_file, col_types)
     if 'reload' in args.__dict__:
         if args.__dict__['reload'] == True:
@@ -38,7 +42,7 @@ def process(args):
         
     parser.insert(esdump_file, col_types)
     parser.index()
-    parser.extend(esdump_file)
+    parser.extend(esdump_file, col_types)
     parser.close_conn()
 
 def export(args):
@@ -72,6 +76,7 @@ def _addProcessParser(subparsers):
     parser_worker.set_defaults(func=main, action="process")
     parser_worker.add_argument('-d','--day', help='date from the elasticsearch data, format=YYYY-MM-DD', required=True)
     parser_worker.add_argument('-r','--reload', dest='reload', action='store_true')    
+    parser_worker.add_argument('-f','--flow', help='flow type from Elastic')
 
 def _addTruncateParser(subparsers):
     parser_worker = subparsers.add_parser('truncate',
