@@ -24,6 +24,10 @@ class TstatParser():
         passwd = config.get_property_value('DATABASE', 'password')
         db = config.get_property_value('DATABASE', 'db')        
 
+        groupkeys = config.get_property_value('DATA', 'groupkey_pairs').split(',')
+        self.groupkey_pairs = []
+        for k in groupkeys:
+            self.groupkey_pairs.append(tuple(k.split('-')))
         self.tablename = tablename
         self.flowtype = flowtype
         self.extended_table = 'tstat_analyze_extended'
@@ -121,7 +125,7 @@ class TstatParser():
         cols = []
         for line in csv.reader([header]):
             cols = line
-        columns = ['local', 'remote']
+        columns = ['local', 'remote', 'host_group_key']
         #excludes = ['BLOCK','BUFFER','CODE','DATE','DEST','DESTIP','FILE','HOST','NBYTES','START','STREAMS','STRIPES','TASKID','TYPE','USER','VOLUME','bandwidth_mbps','data','end_date','host','message','Type','LOCK']
         excludes = ['DATE','DEST','DESTIP','HOST','START', 'FILE','TYPE','bandwidth_mbps','data','end_date','host','message','Type','LOCK']
         
@@ -273,6 +277,42 @@ class TstatParser():
             sys.exit(1)    
         
 ##########################################################################
+    def __get_grpkey__(self, rec, regex_grp0, group, grp_key):
+        if regex_grp0.match(rec['local']):
+            regex_pattern_grp1 = r'[a-zA-Z0-9-.]*[-.]+' + group + \
+                '[-.]+[a-zA-Z0-9-.]*'
+            regex_grp1 = re.compile(regex_pattern_grp1)
+            if regex_grp1.match(rec['remote']):
+                return grp_key
+            else:
+                regex_pattern_grp1 = r'[a-zA-Z0-9-.]*[-.]+' + group
+                regex_grp1 = re.compile(regex_pattern_grp1)
+                if regex_grp1.match(rec['remote']):
+                    return grp_key
+        return -1
+
+
+    def __assign_grpkey__(self, rec, group, grp_key):
+        regex_local_pattern1 = r'[a-zA-Z0-9-.]*[-.]+' + group[0] + '[-.]+[a-zA-Z0-9-.]*'
+        regex_local_pattern2 = r'[a-zA-Z0-9-.]*[-.]+' + group[0]
+        regex_local_pattern3 = group[0] + r'[-.]+[a-zA-Z0-9-.]*'
+        regex_local_pattern = r'('+regex_local_pattern1+')|('+regex_local_pattern2+')|(' \
+            + regex_local_pattern3 + ')'
+        regex_local = re.compile(regex_local_pattern)
+
+        regex_remote_pattern1 = r'[a-zA-Z0-9-.]*[-.]+' + group[1] + '[-.]+[a-zA-Z0-9-.]*'
+        regex_remote_pattern2 = r'[a-zA-Z0-9-.]*[-.]+' + group[1]
+        regex_remote_pattern3 = group[1] + r'[-.]+[a-zA-Z0-9-.]*'
+        regex_remote_pattern = r'('+regex_remote_pattern1+')|('+regex_remote_pattern2+')|(' \
+            + regex_remote_pattern3 + ')'
+        regex_remote = re.compile(regex_remote_pattern)
+
+        if regex_local.match(rec['local']) and regex_remote.match(rec['remote']):
+            #print(rec['local'], rec['remote'], grp_key)
+            rec['host_group_key'] = grp_key
+            
+            
+##########################################################################
     def __insert_records__(self, tablename, logfile, cur, col_types):
         #print "Connecting to MySql..."
         print("Inserting data for log: {}".format(logfile))
@@ -292,37 +332,8 @@ class TstatParser():
                 rec = {}
                 
                 flow_type = values[col_ids['type']]
-                '''
-                hostaddr1 = ''
-                if flow_type == 'flow':
-                    hostaddr1 = values[col_ids['source']]
-                elif flow_type == 'gridftp':
-                    hostaddr1 = values[col_ids['host']]
-
-                hostaddr2 = ''
-                if flow_type == 'flow':
-                    hosts = [values[col_ids[k]] for k in col_ids if k.startswith('dest')]
-                    for host in hosts:
-                        hostaddr2 = host
-                elif flow_type == 'gridftp':
-                    host_ips = [values[col_ids[k]] for k in col_ids if k.startswith('dest')]
-                    try:
-                        for host_ip in host_ips:
-                            if host_ip != '':
-                                hostaddr2 = socket.gethostbyaddr(host_ip)[0]
-                    except socket.herror:
-                        print('Unable to resolve IP ({}) to hostname!'.format(host_ip))
-
-                '''
                 hostaddr1 = values[col_ids['source']]
                 hostaddr2 = values[col_ids['dest']]
-                if pattern.match(hostaddr1):
-                    rec['local'] = hostaddr1
-                    rec['remote'] = hostaddr2
-                else:
-                    rec['remote'] = hostaddr1
-                    rec['local'] = hostaddr2                        
-                    
                 idx = 0
                 row = []
                 if flow_type == self.flowtype: # flow/gridftp
@@ -338,19 +349,15 @@ class TstatParser():
                                 rec['remote'] = hostaddr2
                             else:
                                 rec['remote'] = hostaddr1
-                    #elif col == 'source':
-                    #    rec['source'] = hostaddr1
-                    #elif col == 'dest':
-                    #    rec['dest'] = hostaddr2                    
-                    #elif col == 'start':
-                    #    if flow_type == 'flow':
-                    #        rec['start'] = int(values[col_ids['start_0']])
-                    #    elif flow_type == 'gridftp':
-                    #        tm = datetime.datetime.strptime(values[col_ids['start']], '%Y%m%d%H%M%S.%f')
-                    #        epoch = datetime.datetime.utcfromtimestamp(0)
-                    #        time_since_epoch = (tm - epoch).total_seconds()
-                    #        rec['start'] = int(round(time_since_epoch))
-                    #    #print("{} Start: {}".format(flow_type, rec['start']))
+                        elif col == 'host_group_key':
+                            group_idx = 0
+                            for group in self.groupkey_pairs:
+                                self.__assign_grpkey__(rec, group, group_idx)
+                                if 'host_group_key' in rec:
+                                    break
+                                group_idx += 1
+                            if 'host_group_key' not in rec:
+                                rec['host_group_key'] = None
                         else:
                             val = values[col_ids[col]].replace('\n', '').replace('\r', '')
                             #if col == 'NBYTES':
@@ -371,6 +378,7 @@ class TstatParser():
                             else:
                             #print("{}: {}, {}".format(col, len(val), val))
                                 rec[col] = val
+
                         row.append(rec[col])
                         idx += 1
                     data.append(tuple(row))
@@ -389,7 +397,7 @@ class TstatParser():
             #for d in data:
             #    print(len(d))
             total_recs = len(data)
-            print(total_recs)
+            #print(total_recs)
             start_time = time.time()
             if total_recs > 0:
                 subset_size = 1000.0
