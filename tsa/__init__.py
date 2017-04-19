@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 import re
+import glob
 
 def process(args):
     day = args.__dict__['day']
@@ -45,6 +46,59 @@ def process(args):
     parser.extend(esdump_file, col_types)
     parser.close_conn()
 
+def load(args):
+    if args.__dict__['flow'] != None:
+        flowtype = args.__dict__['flow']
+    else:
+        flowtype = 'flow'
+    coltypes_file = os.path.join(os.environ['TSA_HOME'],'resources/column.types')
+    col_types = {}
+    with open(coltypes_file) as f:
+        for line in f:
+            kv = line.split('=')
+            colname = re.sub('[@.#:]', '_', kv[0]) 
+            colname = colname.replace('\n', '')
+            colname = colname.replace('\r', '')
+            if colname == 'interval':
+                colname = '_interval'
+            col_types[colname] = kv[1].replace('\n', '')
+
+    tstatdump = glob.glob(args.tstatdump)
+    tstat_files = []
+    for dump in tstatdump:
+        if os.path.isdir(dump):
+            #print('FILES in {}: {}'.format(dump, os.listdir(dump)))
+            for f in os.listdir(dump):
+                fname = os.path.join(dump, f)
+                if os.path.isfile(fname):                    
+                    tstat_files.append(fname)
+        else:
+            tstat_files.append(dump)
+
+    #print("Tstat_files: {}".format(tstat_files))
+    parser = TstatParser('dummy', flowtype)
+    reload = False
+    if 'reload' in args.__dict__:
+        if args.__dict__['reload'] == True:
+            reload = True
+
+    for esdump_file in tstat_files:
+        tablename = os.path.basename(esdump_file).split('.')[0]
+        tablename = tablename.replace('-', '_')
+        if reload == True:
+            parser.extend_table(esdump_file, col_types)
+            processed_log = parser.processed_log
+            with open(processed_log, 'w') as f:
+                f.write('')            
+            reload = False
+        parser.set_table(tablename)
+        parser.drop_create(esdump_file, col_types)
+        parser.insert(esdump_file, col_types)
+        parser.index()
+        parser.extend(esdump_file, col_types)
+    
+    parser.close_conn()
+
 def export(args):
     tablename = args.__dict__['tablename']
     outfile = args.__dict__['outfile']
@@ -75,6 +129,16 @@ def _addProcessParser(subparsers):
 
     parser_worker.set_defaults(func=main, action="process")
     parser_worker.add_argument('-d','--day', help='date from the elasticsearch data, format=YYYY-MM-DD', required=True)
+    parser_worker.add_argument('-r','--reload', dest='reload', action='store_true')    
+    parser_worker.add_argument('-f','--flow', help='flow type from Elastic')
+
+def _addLoadParser(subparsers):
+    parser_worker = subparsers.add_parser('load',
+                                          formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                                          help=""" Load elasticsearch documents into a MySQL table """)
+
+    parser_worker.set_defaults(func=main, action="load")
+    parser_worker.add_argument('-d','--tstatdump', help='elasticsearch dump dir/files', required=True)
     parser_worker.add_argument('-r','--reload', dest='reload', action='store_true')    
     parser_worker.add_argument('-f','--flow', help='flow type from Elastic')
 
@@ -122,6 +186,7 @@ def main():
 
     subparsers = parser.add_subparsers()
     _addProcessParser(subparsers)
+    _addLoadParser(subparsers)
     _addTruncateParser(subparsers)
     _addCountParser(subparsers)
     _addExportParser(subparsers)
@@ -135,6 +200,8 @@ def main():
 
     if action == 'process':
         process(args)
+    elif action == 'load':
+        load(args)
     elif action == 'export':
         export(args)
     elif action == 'truncate':

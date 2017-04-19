@@ -16,7 +16,7 @@ from fetcher import PropertyReader
 ##############################################################################################
 
 class TstatParser():
-    def __init__(self, tablename, flowtype):
+    def __init__(self, tablename, flowtype='flow'):
         configfile = os.path.join(os.environ['TSA_HOME'], 'config/config.ini')
         config = PropertyReader(configfile)
         host = config.get_property_value('DATABASE', 'hostname')
@@ -44,6 +44,14 @@ class TstatParser():
             if self.con:    
                 self.con.close()
             sys.exit(1)
+        
+
+    def set_table(self, tablename):
+        self.tablename = tablename
+        logdir = os.path.join(os.environ['TSA_HOME'], 'logdir')
+        if not os.path.exists(logdir):
+            os.makedirs(logdir)
+        self.processed_log = os.path.join(logdir, tablename + '_processed.log')
         
 
     def truncate(self):
@@ -371,7 +379,10 @@ class TstatParser():
                                 elif col_types[col] == 'float':
                                     rec[col] = float(val)
                                 elif col_types[col] == 'datetime':
-                                    tm = datetime.datetime.strptime(val, '%Y-%m-%dT%H:%M:%S.%fZ')
+                                    try:
+                                        tm = datetime.datetime.strptime(val, '%Y-%m-%dT%H:%M:%S.%fZ')
+                                    except ValueError:
+                                        tm = datetime.datetime.strptime(val, '%Y-%m-%d %H:%M:%S')
                                     rec[col] = tm.strftime('%Y-%m-%d %H:%M:%S')
                                 else:                            
                                     rec[col] = val
