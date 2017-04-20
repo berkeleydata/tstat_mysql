@@ -485,14 +485,14 @@ class TstatParser():
             throughput_query_table = '(SELECT local, remote, concat(local, ":", remote) as hostpair_key,' \
                 + ' max(throughput_Mbps) as max_throughput FROM ' + tablename + ' GROUP BY local, remote)'
 
-            globus_query_table = '(SELECT source, dest, _timestamp, concat(source, ":", dest, ":", _timestamp)' \
-                + ' as globus_key, count(1) as num_streams, sum(throughput_Mbps) as agg_throughput FROM ' \
-                + tablename + ' GROUP BY source, dest, _timestamp)'
+            globus_query_table = '(SELECT C.source, C.dest, C.start_time, concat(C.source, ":", C.dest, ":", C.start_time)' \
+                + ' as globus_key, count(1) as num_streams, sum(throughput_Mbps) as agg_throughput FROM (SELECT source, dest, throughput_Mbps, from_unixtime(start) as start_time FROM ' \
+                + tablename + ') C GROUP BY C.source, C.dest, C.start_time)'
 
             select_stmt = 'SELECT ' + subquery_columns + ' FROM ' \
                 + ' (SELECT A.*, G.globus_key, G.num_streams, G.agg_throughput FROM ' + tablename \
                 + ' A, ' + globus_query_table + ' G WHERE G.source=A.source and G.dest=A.dest and' \
-                + ' G._timestamp=A._timestamp) B, ' + throughput_query_table + ' T WHERE'\
+                + ' G.start_time=from_unixtime(A.start)) B, ' + throughput_query_table + ' T WHERE'\
                 + ' B.local=T.local and B.remote=T.remote'
 
             insert_stmt = 'INSERT INTO ' + extended_table + '(' + colnames + ') ' + select_stmt
